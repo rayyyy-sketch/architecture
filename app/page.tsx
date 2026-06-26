@@ -164,7 +164,7 @@ export default function Home() {
                       : "border-stone-700 text-stone-400 hover:border-stone-500 hover:text-stone-300"
                   }`}
                 >
-                  <div className="font-semibold truncate">{style.name.split(" ").slice(-1)[0]}</div>
+                  <div className="font-semibold truncate">{style.shortName}</div>
                   <div className="text-stone-500 mt-0.5 text-[10px] leading-tight line-clamp-2">{style.description.split(",")[0]}</div>
                 </button>
               ))}

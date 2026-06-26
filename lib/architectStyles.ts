@@ -1,6 +1,7 @@
 export interface ArchitectStyle {
   id: string;
   name: string;
+  shortName: string;
   period: string;
   description: string;
   keywords: string[];
@@ -10,6 +11,7 @@ export interface ArchitectStyle {
 export const ARCHITECT_STYLES: ArchitectStyle[] = [
   {
     id: "wright",
+    shortName: "Wright",
     name: "Frank Lloyd Wright",
     period: "1867–1959",
     description: "Organic architecture, horizontal Prairie lines, open flowing spaces integrated with nature",
@@ -25,6 +27,7 @@ export const ARCHITECT_STYLES: ArchitectStyle[] = [
   },
   {
     id: "hadid",
+    shortName: "Hadid",
     name: "Zaha Hadid",
     period: "1950–2016",
     description: "Parametric fluid forms, sweeping curves, no right angles, dynamic deconstructivist spaces",
@@ -40,6 +43,7 @@ export const ARCHITECT_STYLES: ArchitectStyle[] = [
   },
   {
     id: "mies",
+    shortName: "Mies",
     name: "Ludwig Mies van der Rohe",
     period: "1886–1969",
     description: "Less is more — minimalist open plans, universal space, glass & steel, absolute clarity",
@@ -55,6 +59,7 @@ export const ARCHITECT_STYLES: ArchitectStyle[] = [
   },
   {
     id: "lecorbusier",
+    shortName: "Le Corbusier",
     name: "Le Corbusier",
     period: "1887–1965",
     description: "Five Points: pilotis, roof garden, free plan, ribbon windows, free facade",
@@ -70,6 +75,7 @@ export const ARCHITECT_STYLES: ArchitectStyle[] = [
   },
   {
     id: "ando",
+    shortName: "Ando",
     name: "Tadao Ando",
     period: "1941–present",
     description: "Raw concrete, silence and light, geometric precision, zen minimalism, nature channels",
@@ -85,6 +91,7 @@ export const ARCHITECT_STYLES: ArchitectStyle[] = [
   },
   {
     id: "piano",
+    shortName: "Piano",
     name: "Renzo Piano",
     period: "1937–present",
     description: "High-tech lightness, transparency, exposed structure, craftsmanship, urban sensitivity",
@@ -100,6 +107,7 @@ export const ARCHITECT_STYLES: ArchitectStyle[] = [
   },
   {
     id: "foster",
+    shortName: "Foster",
     name: "Norman Foster",
     period: "1935–present",
     description: "High-tech modernism, bioclimatic design, sweeping atria, sustainable innovation",
@@ -115,6 +123,7 @@ export const ARCHITECT_STYLES: ArchitectStyle[] = [
   },
   {
     id: "gehry",
+    shortName: "Gehry",
     name: "Frank Gehry",
     period: "1929–present",
     description: "Deconstructivist sculptural forms, titanium cladding, colliding volumes, expressive freedom",
@@ -130,6 +139,7 @@ export const ARCHITECT_STYLES: ArchitectStyle[] = [
   },
   {
     id: "koolhaas",
+    shortName: "Koolhaas",
     name: "Rem Koolhaas / OMA",
     period: "1944–present",
     description: "Programmatic layering, ramps and section, urban density, provocative rational excess",
@@ -145,6 +155,7 @@ export const ARCHITECT_STYLES: ArchitectStyle[] = [
   },
   {
     id: "siza",
+    shortName: "Siza",
     name: "Álvaro Siza",
     period: "1933–present",
     description: "Poetic rationalism, white rendered walls, precise openings, topographic sensitivity",
@@ -160,6 +171,7 @@ export const ARCHITECT_STYLES: ArchitectStyle[] = [
   },
   {
     id: "neutral",
+    shortName: "Neutral",
     name: "Neutral / No Style",
     period: "",
     description: "Practical, efficient floor plan focused purely on the program requirements",
