@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { ARCHITECT_STYLES } from "@/lib/architectStyles";
 
-const client = new Anthropic();
-
 export async function POST(req: NextRequest) {
   try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return NextResponse.json(
+        { error: "AI generation isn't enabled yet. Add an ANTHROPIC_API_KEY to turn it on — meanwhile, 'Try a sample plan' works without it." },
+        { status: 503 }
+      );
+    }
+    const client = new Anthropic();
+
     const formData = await req.formData();
     const description = formData.get("description") as string;
     const styleId = formData.get("styleId") as string;
