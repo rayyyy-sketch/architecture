@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { ARCHITECT_STYLES } from "@/lib/architectStyles";
 import { FloorPlan } from "@/lib/dxfGenerator";
+import { SAMPLE_FLOOR_PLAN } from "@/lib/sampleFloorPlan";
 import FloorPlan2D from "@/components/FloorPlan2D";
 import FloorPlan3D from "@/components/FloorPlan3D";
 
@@ -65,6 +66,12 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSample = () => {
+    setError("");
+    setFloorPlan(SAMPLE_FLOOR_PLAN);
+    setStyleName("Sample — 3-bedroom apartment");
   };
 
   const handleExportDXF = async () => {
@@ -210,6 +217,15 @@ export default function Home() {
                 Generate Floor Plan
               </>
             )}
+          </button>
+
+          {/* Sample — works with no API key */}
+          <button
+            onClick={handleSample}
+            disabled={loading}
+            className="w-full -mt-2 text-stone-400 hover:text-amber-400 text-xs font-medium py-1 transition-colors disabled:opacity-50"
+          >
+            or try a sample plan (no API key needed) →
           </button>
         </div>
 
