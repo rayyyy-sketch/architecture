@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { FloorPlan } from "@/lib/dxfGenerator";
+import { roomPolygon, centroid } from "@/lib/geometry";
 
 const ROOM_COLORS = [
   0x8b7355, 0x6b8e8b, 0x7a8b6b, 0x8b6b7a, 0x6b7a8b,
@@ -19,15 +20,25 @@ export default function FloorPlan3D({ plan }: { plan: FloorPlan }) {
     const W = mount.clientWidth || 800;
     const H = mount.clientHeight || 600;
 
+    // Bounds across all footprints
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const room of plan.rooms) {
+      for (const p of roomPolygon(room)) {
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+      }
+    }
+    if (!isFinite(minX)) { minX = 0; minY = 0; maxX = plan.totalWidth; maxY = plan.totalHeight; }
+    const spanX = maxX - minX;
+    const spanZ = maxY - minY;
+    const cx = (minX + maxX) / 2;
+    const cz = (minY + maxY) / 2;
+
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1c1917);
-    scene.fog = new THREE.Fog(0x1c1917, 30, 80);
+    scene.fog = new THREE.Fog(0x1c1917, spanX + spanZ, (spanX + spanZ) * 3 + 40);
 
-    const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 200);
-    const cx = plan.totalWidth / 2;
-    const cz = plan.totalHeight / 2;
-    camera.position.set(cx + plan.totalWidth * 0.8, plan.totalWidth * 0.6, cz + plan.totalHeight * 0.8);
-    camera.lookAt(cx, 0, cz);
+    const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 500);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(W, H);
@@ -36,27 +47,24 @@ export default function FloorPlan3D({ plan }: { plan: FloorPlan }) {
     mount.appendChild(renderer.domElement);
 
     // Lights
-    const ambient = new THREE.AmbientLight(0xffffff, 0.4);
-    scene.add(ambient);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
     const sun = new THREE.DirectionalLight(0xfff5e0, 1.2);
-    sun.position.set(20, 30, 20);
+    sun.position.set(spanX, spanX + spanZ, spanZ);
     sun.castShadow = true;
     scene.add(sun);
     const fill = new THREE.DirectionalLight(0xe0f0ff, 0.3);
-    fill.position.set(-10, 10, -10);
+    fill.position.set(-spanX, spanX, -spanZ);
     scene.add(fill);
 
-    // Floor
-    const floorGeo = new THREE.PlaneGeometry(plan.totalWidth + 4, plan.totalHeight + 4);
-    const floorMat = new THREE.MeshLambertMaterial({ color: 0x292524 });
-    const floor = new THREE.Mesh(floorGeo, floorMat);
+    // Ground + grid
+    const groundSize = Math.max(spanX, spanZ) + 8;
+    const floorGeo = new THREE.PlaneGeometry(groundSize, groundSize);
+    const floor = new THREE.Mesh(floorGeo, new THREE.MeshLambertMaterial({ color: 0x292524 }));
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(cx, -0.01, cz);
     floor.receiveShadow = true;
     scene.add(floor);
-
-    // Grid
-    const grid = new THREE.GridHelper(plan.totalWidth + 4, plan.totalWidth + 4, 0x3d3836, 0x292524);
+    const grid = new THREE.GridHelper(groundSize, Math.ceil(groundSize), 0x3d3836, 0x292524);
     grid.position.set(cx, 0, cz);
     scene.add(grid);
 
@@ -65,75 +73,69 @@ export default function FloorPlan3D({ plan }: { plan: FloorPlan }) {
 
     plan.rooms.forEach((room, i) => {
       const color = ROOM_COLORS[i % ROOM_COLORS.length];
+      const poly = roomPolygon(room);
 
-      // Floor slab
-      const slabGeo = new THREE.BoxGeometry(room.width - wallThickness, 0.08, room.height - wallThickness);
-      const slabMat = new THREE.MeshLambertMaterial({ color: 0x1c1917 });
-      const slab = new THREE.Mesh(slabGeo, slabMat);
-      slab.position.set(room.x + room.width / 2, 0.04, room.y + room.height / 2);
+      // Floor slab from the footprint shape
+      const shape = new THREE.Shape();
+      poly.forEach((p, j) => (j === 0 ? shape.moveTo(p.x, p.y) : shape.lineTo(p.x, p.y)));
+      shape.closePath();
+      const slab = new THREE.Mesh(
+        new THREE.ShapeGeometry(shape),
+        new THREE.MeshLambertMaterial({ color: 0x14110f, side: THREE.DoubleSide })
+      );
+      slab.rotation.x = Math.PI / 2; // XY shape -> XZ ground plane (z = plan y)
+      slab.position.y = 0.03;
+      slab.receiveShadow = true;
       scene.add(slab);
 
-      // Four walls
-      const wallMat = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.85 });
+      // Walls along each edge (handles angled / non-orthogonal footprints)
+      const wallMat = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.82 });
+      for (let j = 0; j < poly.length; j++) {
+        const a = poly[j];
+        const b = poly[(j + 1) % poly.length];
+        const dx = b.x - a.x;
+        const dz = b.y - a.y;
+        const len = Math.hypot(dx, dz);
+        if (len < 0.01) continue;
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(len, wallHeight, wallThickness), wallMat);
+        wall.position.set((a.x + b.x) / 2, wallHeight / 2, (a.y + b.y) / 2);
+        wall.rotation.y = -Math.atan2(dz, dx);
+        wall.castShadow = true;
+        wall.receiveShadow = true;
+        scene.add(wall);
+      }
 
-      const makeWall = (w: number, h: number, d: number, px: number, py: number, pz: number) => {
-        const geo = new THREE.BoxGeometry(w, h, d);
-        const mesh = new THREE.Mesh(geo, wallMat);
-        mesh.position.set(px, py, pz);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        scene.add(mesh);
-      };
-
-      const x = room.x;
-      const z = room.y;
-      const rw = room.width;
-      const rh = room.height;
-      const wh = wallHeight;
-      const wt = wallThickness;
-      const hy = wh / 2;
-
-      // Bottom wall
-      makeWall(rw, wh, wt, x + rw / 2, hy, z);
-      // Top wall
-      makeWall(rw, wh, wt, x + rw / 2, hy, z + rh);
-      // Left wall
-      makeWall(wt, wh, rh, x, hy, z + rh / 2);
-      // Right wall
-      makeWall(wt, wh, rh, x + rw, hy, z + rh / 2);
-
-      // Ceiling edge (wire frame top)
-      const edgeGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(rw, 0.05, rh));
-      const edgeMat = new THREE.LineBasicMaterial({ color: 0xf59e0b, opacity: 0.4, transparent: true });
-      const edges = new THREE.LineSegments(edgeGeo, edgeMat);
-      edges.position.set(x + rw / 2, wh, z + rh / 2);
+      // Glowing top edge
+      const topShape = new THREE.Shape();
+      poly.forEach((p, j) => (j === 0 ? topShape.moveTo(p.x, p.y) : topShape.lineTo(p.x, p.y)));
+      topShape.closePath();
+      const edgePts = topShape.getPoints(2).map((p) => new THREE.Vector3(p.x, wallHeight, p.y));
+      const edgeGeo = new THREE.BufferGeometry().setFromPoints(edgePts);
+      const edges = new THREE.LineLoop(edgeGeo, new THREE.LineBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.45 }));
       scene.add(edges);
 
-      // Label (sprite)
-      const canvas = document.createElement("canvas");
-      canvas.width = 256; canvas.height = 64;
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "rgba(0,0,0,0)";
-      ctx.fillRect(0, 0, 256, 64);
-      ctx.fillStyle = "#e7e5e4";
-      ctx.font = "bold 22px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(room.name, 128, 32);
-      const texture = new THREE.CanvasTexture(canvas);
-      const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
-      const sprite = new THREE.Sprite(spriteMat);
+      // Room label sprite
+      const c = centroid(poly);
+      const lc = document.createElement("canvas");
+      lc.width = 256; lc.height = 64;
+      const lctx = lc.getContext("2d")!;
+      lctx.fillStyle = "#e7e5e4";
+      lctx.font = "bold 22px sans-serif";
+      lctx.textAlign = "center";
+      lctx.textBaseline = "middle";
+      lctx.fillText(room.name, 128, 32);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(lc), transparent: true }));
       sprite.scale.set(3, 0.75, 1);
-      sprite.position.set(x + rw / 2, wh / 2, z + rh / 2);
+      sprite.position.set(c.x, wallHeight / 2, c.y);
       scene.add(sprite);
     });
 
-    // Orbit controls (manual drag)
+    // Orbit (manual drag)
     let isDown = false;
     let lastX = 0, lastY = 0;
     let theta = Math.PI / 4;
     let phi = Math.PI / 4;
-    const radius = Math.max(plan.totalWidth, plan.totalHeight) * 1.5;
+    const radius = Math.max(spanX, spanZ) * 1.6 + 6;
 
     const updateCamera = () => {
       camera.position.set(
@@ -157,14 +159,10 @@ export default function FloorPlan3D({ plan }: { plan: FloorPlan }) {
     renderer.domElement.addEventListener("mousedown", onDown);
     window.addEventListener("mouseup", onUp);
     window.addEventListener("mousemove", onMove);
-
     updateCamera();
 
     let animId: number;
-    const animate = () => {
-      animId = requestAnimationFrame(animate);
-      renderer.render(scene, camera);
-    };
+    const animate = () => { animId = requestAnimationFrame(animate); renderer.render(scene, camera); };
     animate();
 
     return () => {
@@ -180,7 +178,7 @@ export default function FloorPlan3D({ plan }: { plan: FloorPlan }) {
   return (
     <div className="relative w-full" style={{ minHeight: 500 }}>
       <div ref={mountRef} className="w-full h-full" style={{ minHeight: 500 }} />
-      <div className="absolute bottom-3 left-3 text-stone-600 text-xs">Click & drag to rotate</div>
+      <div className="absolute bottom-3 left-3 text-stone-600 text-xs">Click &amp; drag to rotate</div>
     </div>
   );
 }

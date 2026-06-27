@@ -2,25 +2,36 @@
 
 import { useState, useRef, useCallback } from "react";
 import { ARCHITECT_STYLES } from "@/lib/architectStyles";
-import { FloorPlan } from "@/lib/dxfGenerator";
-import { SAMPLE_FLOOR_PLAN } from "@/lib/sampleFloorPlan";
+import { Variation } from "@/lib/dxfGenerator";
+import { SAMPLE_VARIATIONS } from "@/lib/sampleFloorPlan";
 import FloorPlan2D from "@/components/FloorPlan2D";
 import FloorPlan3D from "@/components/FloorPlan3D";
 
 type ViewMode = "2d" | "3d";
+type Creativity = "subtle" | "balanced" | "bold";
+
+const CREATIVITY_LEVELS: { id: Creativity; label: string; hint: string }[] = [
+  { id: "subtle", label: "Subtle", hint: "Clean & orthogonal" },
+  { id: "balanced", label: "Balanced", hint: "A few bold moves" },
+  { id: "bold", label: "Bold", hint: "Sculptural & daring" },
+];
 
 export default function Home() {
   const [description, setDescription] = useState("");
   const [selectedStyle, setSelectedStyle] = useState(ARCHITECT_STYLES[0].id);
+  const [creativity, setCreativity] = useState<Creativity>("balanced");
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [floorPlan, setFloorPlan] = useState<FloorPlan | null>(null);
+  const [variations, setVariations] = useState<Variation[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [styleName, setStyleName] = useState("");
   const [error, setError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const current = variations[selectedIndex] ?? null;
 
   const handleImageDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -47,19 +58,21 @@ export default function Home() {
     }
     setError("");
     setLoading(true);
-    setFloorPlan(null);
+    setVariations([]);
+    setSelectedIndex(0);
 
     try {
       const formData = new FormData();
       formData.append("description", description);
       formData.append("styleId", selectedStyle);
+      formData.append("creativity", creativity);
       if (imageFile) formData.append("image", imageFile);
 
       const res = await fetch("/api/generate", { method: "POST", body: formData });
       const data = await res.json();
 
       if (!res.ok) throw new Error(data.error || "Generation failed");
-      setFloorPlan(data.floorPlan);
+      setVariations(data.variations ?? []);
       setStyleName(data.styleName);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -70,19 +83,20 @@ export default function Home() {
 
   const handleSample = () => {
     setError("");
-    setFloorPlan(SAMPLE_FLOOR_PLAN);
-    setStyleName("Sample — 3-bedroom apartment");
+    setSelectedIndex(0);
+    setVariations(SAMPLE_VARIATIONS);
+    setStyleName("Sample concepts");
   };
 
   const handleExportDXF = async () => {
-    if (!floorPlan) return;
+    if (!current) return;
     const { generateDXF } = await import("@/lib/dxfGenerator");
-    const dxfContent = generateDXF(floorPlan);
+    const dxfContent = generateDXF(current);
     const blob = new Blob([dxfContent], { type: "application/dxf" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "floor-plan.dxf";
+    a.download = `${(current.conceptName || "floor-plan").replace(/\s+/g, "-").toLowerCase()}.dxf`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -157,6 +171,25 @@ export default function Home() {
             </div>
           </section>
 
+          {/* Creativity dial */}
+          <section>
+            <label className="block text-sm font-medium text-stone-300 mb-2">Creativity</label>
+            <div className="flex bg-stone-900 border border-stone-700 rounded-lg p-1 gap-1">
+              {CREATIVITY_LEVELS.map((lvl) => (
+                <button
+                  key={lvl.id}
+                  onClick={() => setCreativity(lvl.id)}
+                  className={`flex-1 px-2 py-2 rounded text-center transition-colors ${
+                    creativity === lvl.id ? "bg-amber-500 text-stone-950" : "text-stone-400 hover:text-stone-200"
+                  }`}
+                >
+                  <div className="text-xs font-semibold">{lvl.label}</div>
+                  <div className={`text-[9px] ${creativity === lvl.id ? "text-stone-800" : "text-stone-500"}`}>{lvl.hint}</div>
+                </button>
+              ))}
+            </div>
+          </section>
+
           {/* Architect Style Selection */}
           <section>
             <label className="block text-sm font-medium text-stone-300 mb-3">Architect Style</label>
@@ -207,14 +240,14 @@ export default function Home() {
                   <circle cx="12" cy="12" r="10" strokeOpacity="0.3" />
                   <path d="M12 2a10 10 0 0 1 10 10" />
                 </svg>
-                Generating floor plan...
+                Designing 3 concepts...
               </>
             ) : (
               <>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
                 </svg>
-                Generate Floor Plan
+                Generate 3 Concepts
               </>
             )}
           </button>
@@ -225,15 +258,41 @@ export default function Home() {
             disabled={loading}
             className="w-full -mt-2 text-stone-400 hover:text-amber-400 text-xs font-medium py-1 transition-colors disabled:opacity-50"
           >
-            or try a sample plan (no API key needed) →
+            or try sample concepts (no API key needed) →
           </button>
         </div>
 
         {/* Right Panel — Preview */}
         <div className="space-y-4">
-          {/* View Mode Toggle */}
-          {floorPlan && (
-            <div className="flex items-center justify-between">
+          {/* Variation switcher */}
+          {variations.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {variations.map((v, i) => (
+                <button
+                  key={i}
+                  onClick={() => setSelectedIndex(i)}
+                  className={`text-left px-3 py-2 rounded-lg border transition-all ${
+                    selectedIndex === i
+                      ? "border-amber-500 bg-amber-500/10"
+                      : "border-stone-700 hover:border-stone-500"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[10px] font-bold ${selectedIndex === i ? "text-amber-400" : "text-stone-500"}`}>
+                      {String.fromCharCode(65 + i)}
+                    </span>
+                    <span className={`text-xs font-semibold truncate ${selectedIndex === i ? "text-amber-400" : "text-stone-300"}`}>
+                      {v.conceptName || `Concept ${i + 1}`}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* View Mode Toggle + style */}
+          {current && (
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <span className="text-stone-400 text-sm">Style: </span>
                 <span className="text-amber-400 text-sm font-medium">{styleName}</span>
@@ -259,9 +318,17 @@ export default function Home() {
             </div>
           )}
 
+          {/* Concept description */}
+          {current?.conceptDescription && (
+            <p className="text-stone-400 text-sm bg-stone-900 border border-stone-800 rounded-lg px-4 py-3 leading-relaxed">
+              <span className="text-amber-400 font-medium">{current.conceptName}: </span>
+              {current.conceptDescription}
+            </p>
+          )}
+
           {/* Canvas Area */}
           <div className="bg-stone-900 border border-stone-800 rounded-xl overflow-hidden" style={{ minHeight: 500 }}>
-            {!floorPlan && !loading && (
+            {!current && !loading && (
               <div className="flex flex-col items-center justify-center h-full text-stone-600 py-32">
                 <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="mb-4">
                   <rect x="2" y="3" width="20" height="18" rx="1" />
@@ -269,28 +336,28 @@ export default function Home() {
                   <line x1="12" y1="9" x2="12" y2="21" />
                   <line x1="7" y1="3" x2="7" y2="9" />
                 </svg>
-                <p className="text-sm">Your floor plan will appear here</p>
-                <p className="text-xs mt-1">Enter a description and choose a style to generate</p>
+                <p className="text-sm">Your concepts will appear here</p>
+                <p className="text-xs mt-1">Describe a project, set the creativity, and generate</p>
               </div>
             )}
             {loading && (
               <div className="flex flex-col items-center justify-center h-full py-32">
                 <div className="w-12 h-12 border-2 border-stone-700 border-t-amber-500 rounded-full animate-spin mb-4" />
-                <p className="text-stone-400 text-sm">AI is designing your floor plan...</p>
-                <p className="text-stone-600 text-xs mt-1">Applying {selectedStyleData?.name} principles</p>
+                <p className="text-stone-400 text-sm">AI is exploring 3 directions...</p>
+                <p className="text-stone-600 text-xs mt-1">Applying {selectedStyleData?.name} · {creativity} creativity</p>
               </div>
             )}
-            {floorPlan && !loading && (
+            {current && !loading && (
               viewMode === "2d" ? (
-                <FloorPlan2D plan={floorPlan} />
+                <FloorPlan2D plan={current} />
               ) : (
-                <FloorPlan3D plan={floorPlan} />
+                <FloorPlan3D plan={current} />
               )
             )}
           </div>
 
           {/* Export Button */}
-          {floorPlan && (
+          {current && (
             <button
               onClick={handleExportDXF}
               className="w-full border border-amber-500 text-amber-500 hover:bg-amber-500 hover:text-stone-950 font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
@@ -300,7 +367,7 @@ export default function Home() {
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              Export to AutoCAD (.dxf)
+              Export this concept to AutoCAD (.dxf)
             </button>
           )}
         </div>

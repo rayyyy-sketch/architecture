@@ -1,9 +1,20 @@
+import { roomPolygon, centroid } from "./geometry";
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
 export interface Room {
   name: string;
+  // Simple rectangle footprint (always present as a fallback / bounding box).
   x: number;
   y: number;
   width: number;
   height: number;
+  // Optional free-form footprint (meters, y-up). When given (3+ points) it
+  // overrides the rectangle and lets rooms be angled, L-shaped, faceted, etc.
+  polygon?: Point[];
   doors?: { wall: "top" | "bottom" | "left" | "right"; position: number }[];
   windows?: { wall: "top" | "bottom" | "left" | "right"; position: number }[];
 }
@@ -13,6 +24,12 @@ export interface FloorPlan {
   totalWidth: number;
   totalHeight: number;
   scale: number; // mm per unit
+}
+
+// A FloorPlan plus the design concept behind it (one of the 3 variations).
+export interface Variation extends FloorPlan {
+  conceptName?: string;
+  conceptDescription?: string;
 }
 
 export function generateDXF(plan: FloorPlan): string {
@@ -43,39 +60,37 @@ export function generateDXF(plan: FloorPlan): string {
   push("0", "SECTION", "2", "ENTITIES");
 
   for (const room of plan.rooms) {
-    const x1 = room.x * s;
-    const y1 = room.y * s;
-    const x2 = (room.x + room.width) * s;
-    const y2 = (room.y + room.height) * s;
+    const poly = roomPolygon(room);
 
-    // Four walls as LINE entities
-    const wallSegs: [number, number, number, number][] = [
-      [x1, y1, x2, y1], // bottom
-      [x2, y1, x2, y2], // right
-      [x2, y2, x1, y2], // top
-      [x1, y2, x1, y1], // left
-    ];
-
-    for (const [ax, ay, bx, by] of wallSegs) {
-      push("0", "LINE", "8", "WALLS", "10", ax, "20", ay, "30", "0", "11", bx, "21", by, "31", "0");
+    // Footprint as a closed lightweight polyline (handles any shape).
+    push("0", "LWPOLYLINE", "8", "WALLS", "90", poly.length, "70", "1");
+    for (const p of poly) {
+      push("10", p.x * s, "20", p.y * s);
     }
 
-    // Room label (TEXT entity)
-    const cx = (x1 + x2) / 2;
-    const cy = (y1 + y2) / 2;
-    push("0", "TEXT", "8", "LABELS", "10", cx, "20", cy, "30", "0", "40", s * 0.4, "1", room.name, "72", "1", "11", cx, "21", cy, "31", "0");
+    // Room label at the centroid.
+    const c = centroid(poly);
+    push(
+      "0", "TEXT", "8", "LABELS",
+      "10", c.x * s, "20", c.y * s, "30", "0",
+      "40", s * 0.4, "1", room.name,
+      "72", "1", "11", c.x * s, "21", c.y * s, "31", "0"
+    );
 
-    // Doors
-    if (room.doors) {
+    // Doors (only meaningful for the simple rectangle footprint).
+    if (!room.polygon && room.doors) {
+      const x1 = room.x * s;
+      const y1 = room.y * s;
+      const x2 = (room.x + room.width) * s;
+      const y2 = (room.y + room.height) * s;
       for (const door of room.doors) {
         const doorWidth = s * 0.9;
-        let dx1: number, dy1: number, dx2: number, dy2: number;
         const p = door.position * s;
+        let dx1: number, dy1: number, dx2: number, dy2: number;
         if (door.wall === "bottom") { dx1 = x1 + p; dy1 = y1; dx2 = x1 + p + doorWidth; dy2 = y1; }
         else if (door.wall === "top") { dx1 = x1 + p; dy1 = y2; dx2 = x1 + p + doorWidth; dy2 = y2; }
         else if (door.wall === "left") { dx1 = x1; dy1 = y1 + p; dx2 = x1; dy2 = y1 + p + doorWidth; }
         else { dx1 = x2; dy1 = y1 + p; dx2 = x2; dy2 = y1 + p + doorWidth; }
-        // Draw door gap (erase wall) with a white line trick — use OPENINGS layer color 1
         push("0", "LINE", "8", "OPENINGS", "10", dx1, "20", dy1, "30", "0", "11", dx2, "21", dy2, "31", "0");
       }
     }

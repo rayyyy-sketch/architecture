@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { FloorPlan } from "@/lib/dxfGenerator";
+import { roomPolygon, centroid, polygonArea } from "@/lib/geometry";
 
 const COLORS = [
   "#78716c", "#a8a29e", "#57534e", "#d6d3d1", "#79716b",
@@ -17,15 +18,29 @@ export default function FloorPlan2D({ plan }: { plan: FloorPlan }) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    // Fit to the actual extent of all room footprints.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const room of plan.rooms) {
+      for (const p of roomPolygon(room)) {
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+      }
+    }
+    if (!isFinite(minX)) { minX = 0; minY = 0; maxX = plan.totalWidth; maxY = plan.totalHeight; }
+    const planW = Math.max(maxX - minX, 1);
+    const planH = Math.max(maxY - minY, 1);
+
     const padding = 48;
     const availW = canvas.width - padding * 2;
     const availH = canvas.height - padding * 2;
-    const scaleX = availW / plan.totalWidth;
-    const scaleY = availH / plan.totalHeight;
-    const scale = Math.min(scaleX, scaleY);
+    const scale = Math.min(availW / planW, availH / planH);
 
-    const offsetX = padding + (availW - plan.totalWidth * scale) / 2;
-    const offsetY = padding + (availH - plan.totalHeight * scale) / 2;
+    const offsetX = padding + (availW - planW * scale) / 2;
+    const offsetY = padding + (availH - planH * scale) / 2;
+
+    // World (meters, y-up) -> screen (px, y-down).
+    const sx = (wx: number) => offsetX + (wx - minX) * scale;
+    const sy = (wy: number) => offsetY + (maxY - wy) * scale;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -41,27 +56,33 @@ export default function FloorPlan2D({ plan }: { plan: FloorPlan }) {
     }
 
     plan.rooms.forEach((room, i) => {
-      const x = offsetX + room.x * scale;
-      const y = offsetY + (plan.totalHeight - room.y - room.height) * scale;
-      const w = room.width * scale;
-      const h = room.height * scale;
+      const poly = roomPolygon(room);
 
-      // Room fill
+      // Footprint fill + walls
+      ctx.beginPath();
+      poly.forEach((p, j) => {
+        const px = sx(p.x), py = sy(p.y);
+        if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
       ctx.fillStyle = COLORS[i % COLORS.length] + "22";
-      ctx.fillRect(x, y, w, h);
-
-      // Walls
+      ctx.fill();
       ctx.strokeStyle = "#e7e5e4";
       ctx.lineWidth = 2.5;
-      ctx.strokeRect(x, y, w, h);
+      ctx.lineJoin = "round";
+      ctx.stroke();
 
-      // Doors
-      if (room.doors) {
+      // Doors (rectangle rooms only)
+      if (!room.polygon && room.doors) {
+        const x = sx(room.x);
+        const y = sy(room.y + room.height);
+        const w = room.width * scale;
+        const h = room.height * scale;
+        const doorW = 0.9 * scale;
+        ctx.strokeStyle = "#f59e0b";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 2]);
         for (const door of room.doors) {
-          const doorW = 0.9 * scale;
-          ctx.strokeStyle = "#f59e0b";
-          ctx.lineWidth = 2;
-          ctx.setLineDash([4, 2]);
           if (door.wall === "bottom") {
             const dx = x + door.position * scale;
             ctx.beginPath(); ctx.moveTo(dx, y + h); ctx.lineTo(dx + doorW, y + h); ctx.stroke();
@@ -79,25 +100,26 @@ export default function FloorPlan2D({ plan }: { plan: FloorPlan }) {
             ctx.beginPath(); ctx.moveTo(x + w, dy); ctx.lineTo(x + w, dy + doorW); ctx.stroke();
             ctx.beginPath(); ctx.arc(x + w, dy + doorW, doorW, -Math.PI / 2, 0); ctx.stroke();
           }
-          ctx.setLineDash([]);
         }
+        ctx.setLineDash([]);
       }
 
-      // Room label
+      // Label + area at centroid
+      const c = centroid(poly);
+      const cxp = sx(c.x), cyp = sy(c.y);
+      const area = Math.round(polygonArea(poly));
       ctx.fillStyle = "#e7e5e4";
-      ctx.font = `bold ${Math.max(10, Math.min(13, w / 8))}px sans-serif`;
+      ctx.font = "bold 12px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(room.name, x + w / 2, y + h / 2 - 8);
-
-      // Dimensions
+      ctx.fillText(room.name, cxp, cyp - 7);
       ctx.fillStyle = "#78716c";
-      ctx.font = `${Math.max(8, Math.min(11, w / 10))}px sans-serif`;
-      ctx.fillText(`${room.width}m × ${room.height}m`, x + w / 2, y + h / 2 + 10);
+      ctx.font = "10px sans-serif";
+      ctx.fillText(`${area} m²`, cxp, cyp + 8);
     });
 
     // Scale bar
-    const barMeters = Math.round(plan.totalWidth / 4);
+    const barMeters = Math.max(1, Math.round(planW / 4));
     const barPx = barMeters * scale;
     const bx = offsetX;
     const by = canvas.height - 20;
