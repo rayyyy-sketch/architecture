@@ -19,6 +19,7 @@ const CREATIVITY_LEVELS: { id: Creativity; label: string; hint: string }[] = [
 export default function Home() {
   const [description, setDescription] = useState("");
   const [selectedStyle, setSelectedStyle] = useState(ARCHITECT_STYLES[0].id);
+  const [customStyle, setCustomStyle] = useState("");
   const [creativity, setCreativity] = useState<Creativity>("balanced");
   const [viewMode, setViewMode] = useState<ViewMode>("2d");
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -65,6 +66,7 @@ export default function Home() {
       const formData = new FormData();
       formData.append("description", description);
       formData.append("styleId", selectedStyle);
+      formData.append("customStyle", customStyle);
       formData.append("creativity", creativity);
       if (imageFile) formData.append("image", imageFile);
 
@@ -133,9 +135,11 @@ export default function Home() {
             />
           </section>
 
-          {/* Image Upload */}
+          {/* Image Upload — drop a photo and the AI redraws / edits it */}
           <section>
-            <label className="block text-sm font-medium text-stone-300 mb-2">Reference Image (optional)</label>
+            <label className="block text-sm font-medium text-stone-300 mb-2">
+              Photo to redraw &amp; edit <span className="text-stone-500 font-normal">(optional)</span>
+            </label>
             <div
               className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
                 isDragging ? "border-amber-500 bg-amber-500/10" : "border-stone-700 hover:border-stone-500"
@@ -164,7 +168,7 @@ export default function Home() {
                     <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" />
                     <polyline points="21 15 16 10 5 21" />
                   </svg>
-                  Drop a sketch or photo here, or click to browse
+                  Slide a photo or sketch here — the AI redraws &amp; edits it into a plan
                 </div>
               )}
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
@@ -222,6 +226,25 @@ export default function Home() {
                 </div>
               </div>
             )}
+
+            {/* Research any style the presets don't cover */}
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">
+                Or research a specific style / architect
+              </label>
+              <input
+                type="text"
+                value={customStyle}
+                onChange={(e) => setCustomStyle(e.target.value)}
+                placeholder='e.g. "Santiago Calatrava", "Brutalism", "Japanese minimalism"'
+                className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-sm text-stone-100 placeholder-stone-600 focus:outline-none focus:border-amber-500 transition-colors"
+              />
+              {customStyle.trim() && (
+                <p className="text-[11px] text-amber-400/80 mt-1.5 leading-snug">
+                  The AI will research <span className="font-semibold">{customStyle.trim()}</span> and design in that style (overrides the preset above).
+                </p>
+              )}
+            </div>
           </section>
 
           {error && (

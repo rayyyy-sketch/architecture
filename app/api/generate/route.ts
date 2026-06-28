@@ -24,11 +24,25 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const description = formData.get("description") as string;
     const styleId = formData.get("styleId") as string;
+    const customStyle = ((formData.get("customStyle") as string) || "").trim();
     const creativity = ((formData.get("creativity") as string) || "balanced").toLowerCase();
     const imageFile = formData.get("image") as File | null;
 
-    const style = ARCHITECT_STYLES.find((s) => s.id === styleId) ?? ARCHITECT_STYLES[ARCHITECT_STYLES.length - 1];
+    const presetStyle = ARCHITECT_STYLES.find((s) => s.id === styleId) ?? ARCHITECT_STYLES[ARCHITECT_STYLES.length - 1];
     const creativityDirective = CREATIVITY_DIRECTIVE[creativity] ?? CREATIVITY_DIRECTIVE.balanced;
+
+    // When the user names a specific style/architect, research it instead of
+    // using a preset. Web search (when available) lets Claude pull real,
+    // up-to-date principles for less common names.
+    const useResearch = customStyle.length > 0;
+    const styleDirective = useResearch
+      ? `RESEARCH-DRIVEN STYLE. The user wants the design in the style of: "${customStyle}".
+First research this architect / movement / style — its spatial principles, proportions, signature
+geometric moves, circulation and use of light — then apply those principles faithfully to the plans.
+If you used web search, ground the design in what you found.`
+      : presetStyle.systemPrompt;
+
+    const styleName = useResearch ? customStyle : presetStyle.name;
 
     const schema = `Return ONLY valid JSON (no markdown fences, no prose) in EXACTLY this shape:
 {
@@ -58,14 +72,15 @@ RULES:
   (use it for angled / L-shaped / faceted / curved rooms — approximate curves with many points).
   Omit "polygon" for plain rectangular rooms.
 - Rooms within a variation must tile together without overlapping; shared walls should align.
-- Keep every room a sensible, usable size.`;
+- Keep every room a sensible, usable size.
+- Your FINAL message must be ONLY the JSON object — nothing else.`;
 
     const systemPrompt = `You are a visionary architect generating buildable floor plans.
 
 Work like a real designer: FIRST think about the parti — zoning, circulation, light, and the
 defining spatial idea — THEN translate it into geometry. Do not default to a boring grid of boxes.
 
-${style.systemPrompt}
+${styleDirective}
 
 ${creativityDirective}
 
@@ -83,21 +98,42 @@ ${schema}`;
       });
     }
 
-    userContent.push({
-      type: "text",
-      text: description
-        ? `Design 3 distinct floor plan concepts for: ${description}`
-        : "Design 3 distinct floor plan concepts based on the uploaded image/sketch.",
-    });
+    // Build the instruction. A photo means "redraw & edit it into editable plans".
+    let instruction: string;
+    if (imageFile) {
+      instruction =
+        "The user uploaded a photo/sketch of a floor plan or space. Read it carefully and REDRAW it into 3 editable floor-plan concepts — faithfully reproducing its layout and proportions where sensible, while refining and improving it.";
+      if (description) instruction += `\nApply these edits / notes from the user: ${description}`;
+    } else {
+      instruction = `Design 3 distinct floor plan concepts for: ${description}`;
+    }
+    userContent.push({ type: "text", text: instruction });
 
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-6",
+    const baseParams = {
+      model: "claude-sonnet-4-6" as const,
       max_tokens: 8000,
       system: systemPrompt,
-      messages: [{ role: "user", content: userContent }],
-    });
+      messages: [{ role: "user" as const, content: userContent }],
+    };
 
-    const text = message.content[0].type === "text" ? message.content[0].text : "";
+    // Try with web search when researching a named style; fall back gracefully
+    // if the tool isn't available on the account.
+    let message: Anthropic.Message;
+    try {
+      message = await client.messages.create(
+        useResearch
+          ? { ...baseParams, tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }] }
+          : baseParams
+      );
+    } catch {
+      message = await client.messages.create(baseParams);
+    }
+
+    // Concatenate every text block (web-search responses contain several blocks).
+    const text = message.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
@@ -107,7 +143,7 @@ ${schema}`;
     const parsed = JSON.parse(jsonMatch[0]);
     const variations = Array.isArray(parsed.variations) ? parsed.variations : [parsed];
 
-    return NextResponse.json({ variations, styleName: style.name });
+    return NextResponse.json({ variations, styleName });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Generation failed" }, { status: 500 });
