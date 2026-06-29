@@ -1,7 +1,9 @@
 import { ARCHITECT_STYLES } from "./architectStyles";
 import { Variation } from "./dxfGenerator";
 
-export const GEN_MODEL = "claude-sonnet-4-6";
+// Haiku 4.5 — the cheapest Claude model ($1/$5 per 1M tokens), ~3x cheaper
+// than Sonnet. Still supports vision (photo redraw) and web search.
+export const GEN_MODEL = "claude-haiku-4-5";
 export const GEN_MAX_TOKENS = 8000;
 
 export const CREATIVITY_DIRECTIVE: Record<string, string> = {
