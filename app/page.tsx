@@ -5,10 +5,12 @@ import { ARCHITECT_STYLES } from "@/lib/architectStyles";
 import { Variation } from "@/lib/dxfGenerator";
 import { SAMPLE_VARIATIONS } from "@/lib/sampleFloorPlan";
 import { generateWithGemini } from "@/lib/geminiClient";
+import { generateImageWithKie } from "@/lib/kieImageClient";
 import FloorPlan2D from "@/components/FloorPlan2D";
 import FloorPlan3D from "@/components/FloorPlan3D";
 
 const KEY_STORAGE = "archai_anthropic_key";
+const KIE_STORAGE = "archai_kie_key";
 
 type ViewMode = "2d" | "3d";
 type Creativity = "subtle" | "balanced" | "bold";
@@ -35,6 +37,11 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
+  const [kieKey, setKieKey] = useState("");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [imageProgress, setImageProgress] = useState(0);
+  const [imageError, setImageError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const current = variations[selectedIndex] ?? null;
@@ -44,12 +51,43 @@ export default function Home() {
     const saved = localStorage.getItem(KEY_STORAGE);
     if (saved) setApiKey(saved);
     else if (process.env.NEXT_PUBLIC_GEMINI_API_KEY) setApiKey(process.env.NEXT_PUBLIC_GEMINI_API_KEY);
+    const savedKie = localStorage.getItem(KIE_STORAGE);
+    if (savedKie) setKieKey(savedKie);
   }, []);
 
   const saveKey = (v: string) => {
     setApiKey(v);
     if (v.trim()) localStorage.setItem(KEY_STORAGE, v.trim());
     else localStorage.removeItem(KEY_STORAGE);
+  };
+
+  const saveKieKey = (v: string) => {
+    setKieKey(v);
+    if (v.trim()) localStorage.setItem(KIE_STORAGE, v.trim());
+    else localStorage.removeItem(KIE_STORAGE);
+  };
+
+  const handleRenderImage = async () => {
+    if (!kieKey.trim()) { setImageError("Paste your kie.ai key first."); return; }
+    if (!description.trim()) { setImageError("Type a description to render."); return; }
+    setImageError("");
+    setImageUrl(null);
+    setImageProgress(0);
+    setImageLoading(true);
+    try {
+      const styleHint = customStyle.trim() || ARCHITECT_STYLES.find((s) => s.id === selectedStyle)?.name || "";
+      const prompt = `Architectural rendering: ${description}. ${styleHint ? "In the style of " + styleHint + "." : ""} Professional, photorealistic, high detail.`;
+      const url = await generateImageWithKie({
+        apiKey: kieKey.trim(),
+        prompt,
+        onProgress: setImageProgress,
+      });
+      setImageUrl(url);
+    } catch (err: unknown) {
+      setImageError(err instanceof Error ? err.message : "Image render failed.");
+    } finally {
+      setImageLoading(false);
+    }
   };
 
   const handleImageDrop = useCallback((e: React.DragEvent) => {
@@ -346,10 +384,56 @@ export default function Home() {
           >
             or try sample concepts (no API key needed) →
           </button>
+
+          {/* AI image render via kie.ai (GPT Image) — a picture, not an editable plan */}
+          <section className="border-t border-stone-800 pt-5 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-stone-300">🖼️ AI Image Render <span className="text-stone-500 font-normal">(kie.ai)</span></label>
+              <a href="https://kie.ai/api-key" target="_blank" rel="noopener noreferrer" className="text-[11px] text-amber-400 hover:underline">get a key →</a>
+            </div>
+            <input
+              type="password"
+              value={kieKey}
+              onChange={(e) => saveKieKey(e.target.value)}
+              placeholder="kie.ai API key"
+              className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 placeholder-stone-600 focus:outline-none focus:border-amber-500 transition-colors font-mono"
+            />
+            <button
+              onClick={handleRenderImage}
+              disabled={imageLoading}
+              className="w-full bg-stone-800 hover:bg-stone-700 disabled:opacity-50 text-stone-100 font-semibold py-2.5 rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
+            >
+              {imageLoading ? `Rendering… ${imageProgress || ""}` : "Render a photoreal image from the description"}
+            </button>
+            <p className="text-[11px] text-stone-500 leading-snug">Makes a picture (not an editable plan). Uses your description above. Key stays in this browser.</p>
+            {imageError && <p className="text-[11px] text-red-400">{imageError}</p>}
+          </section>
         </div>
 
         {/* Right Panel — Preview */}
         <div className="space-y-4">
+          {/* AI image render result */}
+          {(imageLoading || imageUrl) && (
+            <div className="bg-stone-900 border border-stone-800 rounded-xl p-3">
+              {imageLoading && (
+                <div className="flex flex-col items-center justify-center py-16">
+                  <div className="w-10 h-10 border-2 border-stone-700 border-t-amber-500 rounded-full animate-spin mb-3" />
+                  <p className="text-stone-400 text-sm">Rendering image… {imageProgress ? imageProgress + "%" : "(can take ~30s)"}</p>
+                </div>
+              )}
+              {imageUrl && !imageLoading && (
+                <div className="space-y-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={imageUrl} alt="AI render" className="w-full rounded-lg" />
+                  <a href={imageUrl} target="_blank" rel="noopener noreferrer" download
+                    className="block text-center text-amber-400 hover:underline text-sm">
+                    Open / download full image →
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Variation switcher */}
           {variations.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
