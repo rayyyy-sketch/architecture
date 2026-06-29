@@ -43,6 +43,7 @@ export default function Home() {
   useEffect(() => {
     const saved = localStorage.getItem(KEY_STORAGE);
     if (saved) setApiKey(saved);
+    else if (process.env.NEXT_PUBLIC_GEMINI_API_KEY) setApiKey(process.env.NEXT_PUBLIC_GEMINI_API_KEY);
   }, []);
 
   const saveKey = (v: string) => {
