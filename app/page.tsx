@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { ARCHITECT_STYLES } from "@/lib/architectStyles";
 import { Variation } from "@/lib/dxfGenerator";
 import { SAMPLE_VARIATIONS } from "@/lib/sampleFloorPlan";
-import { generateInBrowser } from "@/lib/generateClient";
+import { generateWithGemini } from "@/lib/geminiClient";
 import FloorPlan2D from "@/components/FloorPlan2D";
 import FloorPlan3D from "@/components/FloorPlan3D";
 
@@ -81,9 +81,9 @@ export default function Home() {
 
     try {
       if (apiKey.trim()) {
-        // Use the user's own key, calling Anthropic straight from the browser
-        // (works even on the free static site — no server needed).
-        const data = await generateInBrowser({
+        // Use the user's own free Gemini key, calling Google straight from the
+        // browser (works on the free static site — no server, $0).
+        const data = await generateWithGemini({
           apiKey: apiKey.trim(),
           description,
           styleId: selectedStyle,
@@ -159,10 +159,10 @@ export default function Home() {
           <section className="bg-stone-900 border border-stone-800 rounded-lg p-3">
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-sm font-medium text-stone-300">
-                Anthropic API key {apiKey.trim() ? <span className="text-emerald-400">· AI on</span> : <span className="text-stone-500">· AI off</span>}
+                Google Gemini key <span className="text-emerald-400/80">(free)</span> {apiKey.trim() ? <span className="text-emerald-400">· AI on</span> : <span className="text-stone-500">· AI off</span>}
               </label>
-              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="text-[11px] text-amber-400 hover:underline">
-                get a key →
+              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-[11px] text-amber-400 hover:underline">
+                get a free key →
               </a>
             </div>
             <div className="flex gap-2">
@@ -170,7 +170,7 @@ export default function Home() {
                 type={showKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => saveKey(e.target.value)}
-                placeholder="sk-ant-..."
+                placeholder="AIza..."
                 className="flex-1 bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 placeholder-stone-600 focus:outline-none focus:border-amber-500 transition-colors font-mono"
               />
               <button
@@ -182,7 +182,7 @@ export default function Home() {
               </button>
             </div>
             <p className="text-[11px] text-stone-500 mt-1.5 leading-snug">
-              Paste your key to design from your own descriptions &amp; photos. It&apos;s saved only in this browser and sent straight to Anthropic — never to us.
+              Paste your free Gemini key to design from your own descriptions &amp; photos. It&apos;s saved only in this browser and sent straight to Google — never to us. Free tier = $0 (just rate limits).
             </p>
           </section>
 
