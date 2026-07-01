@@ -6,8 +6,15 @@ import {
   parseVariations,
 } from "./prompt";
 
-// A free vision-capable model on OpenRouter (handles photos too).
-const OPENROUTER_MODEL = "google/gemini-2.0-flash-exp:free";
+// Several free models — tried in order so one unavailable model doesn't break
+// generation. Vision-capable ones first (for photo input).
+const FREE_MODELS = [
+  "google/gemini-2.0-flash-exp:free",
+  "meta-llama/llama-3.2-11b-vision-instruct:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "deepseek/deepseek-chat-v3-0324:free",
+  "qwen/qwen-2.5-72b-instruct:free",
+];
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -49,37 +56,54 @@ export async function generateWithOpenRouter(
     userContent = instruction;
   }
 
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      "X-Title": "ArchAI",
-    },
-    body: JSON.stringify({
-      model: OPENROUTER_MODEL,
-      max_tokens: 8000,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: userContent },
-      ],
-    }),
-  });
+  let noEndpoints = false;
+  let lastDetail = "";
 
-  if (!res.ok) {
+  for (const model of FREE_MODELS) {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "X-Title": "ArchAI",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 8000,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: userContent },
+        ],
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const text: string = data?.choices?.[0]?.message?.content ?? "";
+      if (text) return { variations: parseVariations(text), styleName };
+      continue; // empty content — try the next model
+    }
+
+    if (res.status === 401) throw new Error("OpenRouter key was rejected — check it at openrouter.ai/keys.");
+    if (res.status === 429) throw new Error("Free-tier rate limit hit — wait a minute and try again (no charge).");
+
     let detail = "";
     try {
       const err = await res.json();
       detail = err?.error?.message || "";
     } catch {}
-    if (res.status === 401) throw new Error("OpenRouter key was rejected — check it at openrouter.ai/keys.");
-    if (res.status === 429) throw new Error("Free-tier rate limit hit — wait a minute and try again (no charge).");
-    throw new Error(detail || `OpenRouter API error (${res.status}).`);
+    lastDetail = detail;
+    if (/no endpoints/i.test(detail) || res.status === 404) {
+      noEndpoints = true;
+      continue; // model unavailable / data policy — try the next one
+    }
+    // Other error — try the next model rather than failing outright
   }
 
-  const data = await res.json();
-  const text: string = data?.choices?.[0]?.message?.content ?? "";
-  if (!text) throw new Error("OpenRouter returned no usable content. Try again or pick another model.");
-
-  return { variations: parseVariations(text), styleName };
+  if (noEndpoints) {
+    throw new Error(
+      "OpenRouter is blocking free models. Turn ON free-model training at openrouter.ai/settings/privacy, then try again."
+    );
+  }
+  throw new Error(lastDetail || "All free models were unavailable — try Gemini in the dropdown, or add credit on OpenRouter.");
 }
