@@ -5,12 +5,29 @@ import { ARCHITECT_STYLES } from "@/lib/architectStyles";
 import { Variation } from "@/lib/dxfGenerator";
 import { SAMPLE_VARIATIONS } from "@/lib/sampleFloorPlan";
 import { generateWithGemini } from "@/lib/geminiClient";
+import { generateWithOpenRouter } from "@/lib/openrouterClient";
 import { generateImageWithKie } from "@/lib/kieImageClient";
 import FloorPlan2D from "@/components/FloorPlan2D";
 import FloorPlan3D from "@/components/FloorPlan3D";
 
-const KEY_STORAGE = "archai_anthropic_key";
 const KIE_STORAGE = "archai_kie_key";
+
+type Provider = "gemini" | "openrouter";
+const PROVIDERS: Record<Provider, { label: string; placeholder: string; keyUrl: string; run: typeof generateWithGemini }> = {
+  gemini: {
+    label: "Google Gemini",
+    placeholder: "AIza...",
+    keyUrl: "https://aistudio.google.com/app/apikey",
+    run: generateWithGemini,
+  },
+  openrouter: {
+    label: "OpenRouter",
+    placeholder: "sk-or-...",
+    keyUrl: "https://openrouter.ai/keys",
+    run: generateWithOpenRouter,
+  },
+};
+const keyStorageFor = (p: Provider) => `archai_key_${p}`;
 
 type ViewMode = "2d" | "3d";
 type Creativity = "subtle" | "balanced" | "bold";
@@ -35,6 +52,7 @@ export default function Home() {
   const [styleName, setStyleName] = useState("");
   const [error, setError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  const [provider, setProvider] = useState<Provider>("gemini");
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [kieKey, setKieKey] = useState("");
@@ -46,19 +64,28 @@ export default function Home() {
 
   const current = variations[selectedIndex] ?? null;
 
-  // Remember the user's key locally (only in their browser).
+  // Remember the user's key locally (only in their browser), per provider.
   useEffect(() => {
-    const saved = localStorage.getItem(KEY_STORAGE);
+    const savedProvider = (localStorage.getItem("archai_provider") as Provider) || "gemini";
+    setProvider(savedProvider);
+    const saved = localStorage.getItem(keyStorageFor(savedProvider));
     if (saved) setApiKey(saved);
-    else if (process.env.NEXT_PUBLIC_GEMINI_API_KEY) setApiKey(process.env.NEXT_PUBLIC_GEMINI_API_KEY);
+    else if (savedProvider === "gemini" && process.env.NEXT_PUBLIC_GEMINI_API_KEY) setApiKey(process.env.NEXT_PUBLIC_GEMINI_API_KEY);
     const savedKie = localStorage.getItem(KIE_STORAGE);
     if (savedKie) setKieKey(savedKie);
   }, []);
 
   const saveKey = (v: string) => {
     setApiKey(v);
-    if (v.trim()) localStorage.setItem(KEY_STORAGE, v.trim());
-    else localStorage.removeItem(KEY_STORAGE);
+    if (v.trim()) localStorage.setItem(keyStorageFor(provider), v.trim());
+    else localStorage.removeItem(keyStorageFor(provider));
+  };
+
+  const changeProvider = (p: Provider) => {
+    setProvider(p);
+    localStorage.setItem("archai_provider", p);
+    setApiKey(localStorage.getItem(keyStorageFor(p)) || "");
+    setError("");
   };
 
   const saveKieKey = (v: string) => {
@@ -120,9 +147,9 @@ export default function Home() {
 
     try {
       if (apiKey.trim()) {
-        // Use the user's own free Gemini key, calling Google straight from the
-        // browser (works on the free static site — no server, $0).
-        const data = await generateWithGemini({
+        // Use the user's own key with the chosen provider, calling it straight
+        // from the browser (works on the free static site — no server).
+        const data = await PROVIDERS[provider].run({
           apiKey: apiKey.trim(),
           description,
           styleId: selectedStyle,
@@ -198,18 +225,26 @@ export default function Home() {
           <section className="bg-stone-900 border border-stone-800 rounded-lg p-3">
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-sm font-medium text-stone-300">
-                Google Gemini key <span className="text-emerald-400/80">(free)</span> {apiKey.trim() ? <span className="text-emerald-400">· AI on</span> : <span className="text-stone-500">· AI off</span>}
+                AI key <span className="text-emerald-400/80">(free)</span> {apiKey.trim() ? <span className="text-emerald-400">· AI on</span> : <span className="text-stone-500">· AI off</span>}
               </label>
-              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-[11px] text-amber-400 hover:underline">
+              <a href={PROVIDERS[provider].keyUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-amber-400 hover:underline">
                 get a free key →
               </a>
             </div>
+            <select
+              value={provider}
+              onChange={(e) => changeProvider(e.target.value as Provider)}
+              className="w-full mb-2 bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 focus:outline-none focus:border-amber-500"
+            >
+              <option value="gemini">Google Gemini (free)</option>
+              <option value="openrouter">OpenRouter (free models)</option>
+            </select>
             <div className="flex gap-2">
               <input
                 type={showKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => saveKey(e.target.value)}
-                placeholder="AIza..."
+                placeholder={PROVIDERS[provider].placeholder}
                 className="flex-1 bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 placeholder-stone-600 focus:outline-none focus:border-amber-500 transition-colors font-mono"
               />
               <button
@@ -221,7 +256,7 @@ export default function Home() {
               </button>
             </div>
             <p className="text-[11px] text-stone-500 mt-1.5 leading-snug">
-              Paste your free Gemini key to design from your own descriptions &amp; photos. It&apos;s saved only in this browser and sent straight to Google — never to us. Free tier = $0 (just rate limits).
+              Pick your AI, then paste that provider&apos;s key to design from your own descriptions &amp; photos. It&apos;s saved only in this browser and sent straight to the provider — never to us. Free tiers = $0 (just rate limits).
             </p>
           </section>
 
