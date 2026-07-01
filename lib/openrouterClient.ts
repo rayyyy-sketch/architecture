@@ -6,14 +6,13 @@ import {
   GenMode,
 } from "./prompt";
 
-// Several free models — tried in order so one unavailable model doesn't break
-// generation. Vision-capable ones first (for photo input).
+// Tried in order: free models first, then a cheap reliable PAID model so that
+// once the user adds a few dollars of credit it "just works" (vision-capable).
 const FREE_MODELS = [
   "google/gemini-2.0-flash-exp:free",
   "meta-llama/llama-3.2-11b-vision-instruct:free",
-  "meta-llama/llama-3.3-70b-instruct:free",
   "deepseek/deepseek-chat-v3-0324:free",
-  "qwen/qwen-2.5-72b-instruct:free",
+  "google/gemini-2.0-flash-001", // paid: ~$0.10 / 1M tokens, very reliable
 ];
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -58,6 +57,7 @@ export async function generateWithOpenRouter(
   }
 
   let noEndpoints = false;
+  let needCredit = false;
   let lastDetail = "";
 
   for (const model of FREE_MODELS) {
@@ -86,7 +86,6 @@ export async function generateWithOpenRouter(
     }
 
     if (res.status === 401) throw new Error("OpenRouter key was rejected — check it at openrouter.ai/keys.");
-    if (res.status === 429) throw new Error("Free-tier rate limit hit — wait a minute and try again (no charge).");
 
     let detail = "";
     try {
@@ -94,6 +93,13 @@ export async function generateWithOpenRouter(
       detail = err?.error?.message || "";
     } catch {}
     lastDetail = detail;
+    if (res.status === 402 || /credit|insufficient|payment/i.test(detail)) {
+      needCredit = true;
+      continue; // out of credit for the paid model — try any remaining free ones
+    }
+    if (res.status === 429) {
+      continue; // rate limited on this model — try the next
+    }
     if (/no endpoints/i.test(detail) || res.status === 404) {
       noEndpoints = true;
       continue; // model unavailable / data policy — try the next one
@@ -101,10 +107,15 @@ export async function generateWithOpenRouter(
     // Other error — try the next model rather than failing outright
   }
 
-  if (noEndpoints) {
+  if (needCredit) {
     throw new Error(
-      "OpenRouter is blocking free models. Turn ON free-model training at openrouter.ai/settings/privacy, then try again."
+      "Add a few dollars of credit at openrouter.ai/credits and it works instantly (no toggles). Then try again."
     );
   }
-  throw new Error(lastDetail || "All free models were unavailable — try Gemini in the dropdown, or add credit on OpenRouter.");
+  if (noEndpoints) {
+    throw new Error(
+      "Free models are blocked. Either add $5 credit at openrouter.ai/credits (recommended), or turn ON free-model training at openrouter.ai/settings/privacy."
+    );
+  }
+  throw new Error(lastDetail || "All models were unavailable — add credit at openrouter.ai/credits or switch to Gemini.");
 }
