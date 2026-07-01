@@ -3,12 +3,16 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { ARCHITECT_STYLES } from "@/lib/architectStyles";
 import { Variation } from "@/lib/dxfGenerator";
+import { ElevationVariation } from "@/lib/elevation";
+import { GenMode } from "@/lib/prompt";
 import { SAMPLE_VARIATIONS } from "@/lib/sampleFloorPlan";
+import { SAMPLE_ELEVATIONS } from "@/lib/sampleElevations";
 import { generateWithGemini } from "@/lib/geminiClient";
 import { generateWithOpenRouter } from "@/lib/openrouterClient";
 import { generateImageWithKie } from "@/lib/kieImageClient";
 import FloorPlan2D from "@/components/FloorPlan2D";
 import FloorPlan3D from "@/components/FloorPlan3D";
+import Elevation2D from "@/components/Elevation2D";
 
 const KIE_STORAGE = "archai_kie_key";
 
@@ -47,7 +51,9 @@ export default function Home() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<GenMode>("plan");
   const [variations, setVariations] = useState<Variation[]>([]);
+  const [elevations, setElevations] = useState<ElevationVariation[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [styleName, setStyleName] = useState("");
   const [error, setError] = useState("");
@@ -63,6 +69,9 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const current = variations[selectedIndex] ?? null;
+  const currentElev = elevations[selectedIndex] ?? null;
+  const items = mode === "exterior" ? elevations : variations;
+  const activeItem = mode === "exterior" ? currentElev : current;
 
   // Remember the user's key locally (only in their browser), per provider.
   useEffect(() => {
@@ -143,6 +152,7 @@ export default function Home() {
     setError("");
     setLoading(true);
     setVariations([]);
+    setElevations([]);
     setSelectedIndex(0);
 
     try {
@@ -156,9 +166,13 @@ export default function Home() {
           customStyle,
           creativity,
           imageFile,
+          mode,
         });
-        setVariations(data.variations ?? []);
+        if (mode === "exterior") setElevations((data.variations ?? []) as unknown as ElevationVariation[]);
+        else setVariations((data.variations ?? []) as unknown as Variation[]);
         setStyleName(data.styleName);
+      } else if (mode === "exterior") {
+        throw new Error("Exterior mode needs an AI key — paste one above, or click the sample link.");
       } else {
         const formData = new FormData();
         formData.append("description", description);
@@ -183,21 +197,37 @@ export default function Home() {
   const handleSample = () => {
     setError("");
     setSelectedIndex(0);
-    setVariations(SAMPLE_VARIATIONS);
-    setStyleName("Sample concepts");
+    if (mode === "exterior") {
+      setVariations([]);
+      setElevations(SAMPLE_ELEVATIONS);
+      setStyleName("Sample facades");
+    } else {
+      setElevations([]);
+      setVariations(SAMPLE_VARIATIONS);
+      setStyleName("Sample concepts");
+    }
   };
 
-  const handleExportDXF = async () => {
-    if (!current) return;
-    const { generateDXF } = await import("@/lib/dxfGenerator");
-    const dxfContent = generateDXF(current);
-    const blob = new Blob([dxfContent], { type: "application/dxf" });
+  const downloadDXF = (content: string, name: string) => {
+    const blob = new Blob([content], { type: "application/dxf" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${(current.conceptName || "floor-plan").replace(/\s+/g, "-").toLowerCase()}.dxf`;
+    a.download = `${name.replace(/\s+/g, "-").toLowerCase()}.dxf`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportDXF = async () => {
+    if (mode === "exterior") {
+      if (!currentElev) return;
+      const { generateElevationDXF } = await import("@/lib/elevation");
+      downloadDXF(generateElevationDXF(currentElev), currentElev.conceptName || "elevation");
+    } else {
+      if (!current) return;
+      const { generateDXF } = await import("@/lib/dxfGenerator");
+      downloadDXF(generateDXF(current), current.conceptName || "floor-plan");
+    }
   };
 
   const selectedStyleData = ARCHITECT_STYLES.find((s) => s.id === selectedStyle);
@@ -221,6 +251,21 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-8">
         {/* Left Panel — Controls */}
         <div className="space-y-6">
+          {/* Mode: floor plan vs exterior elevation */}
+          <div className="flex bg-stone-900 border border-stone-700 rounded-lg p-1 gap-1">
+            {([["plan", "Floor Plan"], ["exterior", "Exterior"]] as [GenMode, string][]).map(([m, label]) => (
+              <button
+                key={m}
+                onClick={() => { setMode(m); setSelectedIndex(0); }}
+                className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
+                  mode === m ? "bg-amber-500 text-stone-950" : "text-stone-400 hover:text-stone-200"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {/* API key — paste your own to turn on the real AI */}
           <section className="bg-stone-900 border border-stone-800 rounded-lg p-3">
             <div className="flex items-center justify-between mb-1.5">
@@ -470,9 +515,9 @@ export default function Home() {
           )}
 
           {/* Variation switcher */}
-          {variations.length > 0 && (
+          {items.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {variations.map((v, i) => (
+              {items.map((v, i) => (
                 <button
                   key={i}
                   onClick={() => setSelectedIndex(i)}
@@ -496,44 +541,47 @@ export default function Home() {
           )}
 
           {/* View Mode Toggle + style */}
-          {current && (
+          {activeItem && (
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <span className="text-stone-400 text-sm">Style: </span>
                 <span className="text-amber-400 text-sm font-medium">{styleName}</span>
               </div>
-              <div className="flex bg-stone-900 border border-stone-700 rounded-lg p-1 gap-1">
-                <button
-                  onClick={() => setViewMode("2d")}
-                  className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-                    viewMode === "2d" ? "bg-amber-500 text-stone-950" : "text-stone-400 hover:text-stone-200"
-                  }`}
-                >
-                  2D Plan
-                </button>
-                <button
-                  onClick={() => setViewMode("3d")}
-                  className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-                    viewMode === "3d" ? "bg-amber-500 text-stone-950" : "text-stone-400 hover:text-stone-200"
-                  }`}
-                >
-                  3D View
-                </button>
-              </div>
+              {mode === "plan" && (
+                <div className="flex bg-stone-900 border border-stone-700 rounded-lg p-1 gap-1">
+                  <button
+                    onClick={() => setViewMode("2d")}
+                    className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
+                      viewMode === "2d" ? "bg-amber-500 text-stone-950" : "text-stone-400 hover:text-stone-200"
+                    }`}
+                  >
+                    2D Plan
+                  </button>
+                  <button
+                    onClick={() => setViewMode("3d")}
+                    className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
+                      viewMode === "3d" ? "bg-amber-500 text-stone-950" : "text-stone-400 hover:text-stone-200"
+                    }`}
+                  >
+                    3D View
+                  </button>
+                </div>
+              )}
+              {mode === "exterior" && <span className="text-stone-500 text-xs">Front elevation</span>}
             </div>
           )}
 
           {/* Concept description */}
-          {current?.conceptDescription && (
+          {activeItem?.conceptDescription && (
             <p className="text-stone-400 text-sm bg-stone-900 border border-stone-800 rounded-lg px-4 py-3 leading-relaxed">
-              <span className="text-amber-400 font-medium">{current.conceptName}: </span>
-              {current.conceptDescription}
+              <span className="text-amber-400 font-medium">{activeItem.conceptName}: </span>
+              {activeItem.conceptDescription}
             </p>
           )}
 
           {/* Canvas Area */}
           <div className="bg-stone-900 border border-stone-800 rounded-xl overflow-hidden" style={{ minHeight: 500 }}>
-            {!current && !loading && (
+            {!activeItem && !loading && (
               <div className="flex flex-col items-center justify-center h-full text-stone-600 py-32">
                 <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="mb-4">
                   <rect x="2" y="3" width="20" height="18" rx="1" />
@@ -552,17 +600,19 @@ export default function Home() {
                 <p className="text-stone-600 text-xs mt-1">Applying {selectedStyleData?.name} · {creativity} creativity</p>
               </div>
             )}
-            {current && !loading && (
-              viewMode === "2d" ? (
+            {activeItem && !loading && (
+              mode === "exterior" && currentElev ? (
+                <Elevation2D elevation={currentElev} />
+              ) : viewMode === "2d" && current ? (
                 <FloorPlan2D plan={current} />
-              ) : (
+              ) : current ? (
                 <FloorPlan3D plan={current} />
-              )
+              ) : null
             )}
           </div>
 
           {/* Export Button */}
-          {current && (
+          {activeItem && (
             <button
               onClick={handleExportDXF}
               className="w-full border border-amber-500 text-amber-500 hover:bg-amber-500 hover:text-stone-950 font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"

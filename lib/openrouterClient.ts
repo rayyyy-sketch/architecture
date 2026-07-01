@@ -1,9 +1,9 @@
-import { Variation } from "./dxfGenerator";
 import {
   resolveStyle,
   buildSystemPrompt,
   buildInstruction,
   parseVariations,
+  GenMode,
 } from "./prompt";
 
 // Several free models — tried in order so one unavailable model doesn't break
@@ -32,18 +32,19 @@ export interface GenerateArgs {
   customStyle: string;
   creativity: string;
   imageFile: File | null;
+  mode?: GenMode;
 }
 
 // Calls OpenRouter (OpenAI-compatible) directly from the browser using the
 // user's key. OpenRouter supports browser calls and offers free models.
 export async function generateWithOpenRouter(
   args: GenerateArgs
-): Promise<{ variations: Variation[]; styleName: string }> {
-  const { apiKey, description, styleId, customStyle, creativity, imageFile } = args;
+): Promise<{ variations: Record<string, unknown>[]; styleName: string }> {
+  const { apiKey, description, styleId, customStyle, creativity, imageFile, mode = "plan" } = args;
 
   const { styleName, styleDirective } = resolveStyle(styleId, customStyle);
-  const system = buildSystemPrompt(styleDirective, creativity);
-  const instruction = buildInstruction(description, !!imageFile);
+  const system = buildSystemPrompt(styleDirective, creativity, mode);
+  const instruction = buildInstruction(description, !!imageFile, mode);
 
   let userContent: unknown;
   if (imageFile) {

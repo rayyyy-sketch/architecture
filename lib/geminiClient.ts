@@ -1,9 +1,9 @@
-import { Variation } from "./dxfGenerator";
 import {
   resolveStyle,
   buildSystemPrompt,
   buildInstruction,
   parseVariations,
+  GenMode,
 } from "./prompt";
 
 // Free-tier Gemini model that supports vision + JSON output.
@@ -28,24 +28,25 @@ export interface GenerateArgs {
   customStyle: string;
   creativity: string;
   imageFile: File | null;
+  mode?: GenMode;
 }
 
 // Calls Google's Gemini API directly from the browser using the user's own
 // free key. Works on the static (GitHub Pages) site with no server, at $0.
 export async function generateWithGemini(
   args: GenerateArgs
-): Promise<{ variations: Variation[]; styleName: string }> {
-  const { apiKey, description, styleId, customStyle, creativity, imageFile } = args;
+): Promise<{ variations: Record<string, unknown>[]; styleName: string }> {
+  const { apiKey, description, styleId, customStyle, creativity, imageFile, mode = "plan" } = args;
 
   const { styleName, styleDirective } = resolveStyle(styleId, customStyle);
-  const system = buildSystemPrompt(styleDirective, creativity);
+  const system = buildSystemPrompt(styleDirective, creativity, mode);
 
   const parts: Record<string, unknown>[] = [];
   if (imageFile) {
     const { data, mimeType } = await fileToBase64(imageFile);
     parts.push({ inlineData: { mimeType, data } });
   }
-  parts.push({ text: buildInstruction(description, !!imageFile) });
+  parts.push({ text: buildInstruction(description, !!imageFile, mode) });
 
   const body = {
     systemInstruction: { parts: [{ text: system }] },
